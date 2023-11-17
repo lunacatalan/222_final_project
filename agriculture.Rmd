@@ -1,0 +1,117 @@
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+```{r}
+# load libraries
+library(foreign)
+library(tidyverse)
+
+library(sf)
+library(terra)
+library(spData)
+library(geodata)
+library(spDataLarge)
+
+library(SDMTools)
+```
+
+```{r}
+# all technologies together, ie complete crop
+iran_TA <- read.dbf("/Users/lunacatalan/Documents/dev/eds222/project/222_final_project/data/spam2010v2r0_global_prod.dbf/spam2010V2r0_global_P_TA.DBF") %>% 
+  filter(ISO3 == "IRN")
+
+
+#str(iran_TA)
+#summary(iran_TA)
+```
+
+```{r}
+```{r}
+# to read in the .tif files use this format
+rootdir <- ("/Users/lunacatalan/Documents/dev/eds222/project/222_final_project/data/spam2010v2r0_global_prod.geotiff/") # print getwd()
+global_acof_a = rast(file.path(rootdir, "spam2010V2r0_global_P_ACOF_A.tif"))
+
+plot(global_acof_a)
+```
+
+# Made Qazvin bbox Geometry 
+
+```{r}
+qazvin_box <- data.frame(name = c("1", "2", "3", "4"),
+                         long = c(49.31937729228426, 49.31937729228426, 51.12523623049739, 51.12523623049739),
+                         lat = c(36.493217304744505, 35.52665079679184, 35.52665079679184, 36.493217304744505))
+
+qazvin_box = st_polygon(list(
+  cbind(
+    qazvin_box$long[c(1, 2, 3, 4, 1)],
+    qazvin_box$lat[c(1, 2, 3, 4, 1)]
+  )
+))
+
+# need to set crs
+qazvin_box <- st_sfc(qazvin_box,
+                     crs = st_crs(asc_2015))
+```
+
+Got this data from: https://zenodo.org/records/7809342
+
+```{r}
+# need a different library for this 
+library(raster)
+library(terra)
+```
+
+
+```{r}
+rootdir <- ("/Users/lunacatalan/Documents/dev/eds222/project/222_final_project/data/AEI_ASC/")
+asc_2015 <- rast(file.path(rootdir, "MEIER_G_AEI_2015.ASC"))
+asc_2010 <- rast(file.path(rootdir, "MEIER_G_AEI_2010.ASC"))
+asc_2005 <- rast(file.path(rootdir, "MEIER_G_AEI_2005.ASC"))
+asc_2000 <- rast(file.path(rootdir, "MEIER_G_AEI_2000.ASC"))
+asc_1995 <- rast(file.path(rootdir, "MEIER_G_AEI_1995.ASC"))
+asc_1990 <- rast(file.path(rootdir, "MEIER_G_AEI_1990.ASC"))
+asc_1985 <- rast(file.path(rootdir, "MEIER_G_AEI_1985.ASC"))
+asc_1980 <- rast(file.path(rootdir, "MEIER_G_AEI_1980.ASC"))
+asc_1970 <- rast(file.path(rootdir, "MEIER_G_AEI_1970.ASC"))
+asc_1960 <- rast(file.path(rootdir, "MEIER_G_AEI_1960.ASC"))
+asc_1950 <- rast(file.path(rootdir, "MEIER_G_AEI_1950.ASC"))
+asc_1940 <- rast(file.path(rootdir, "MEIER_G_AEI_1940.ASC"))
+asc_1930 <- rast(file.path(rootdir, "MEIER_G_AEI_1930.ASC"))
+asc_1920 <- rast(file.path(rootdir, "MEIER_G_AEI_1920.ASC"))
+asc_1910 <- rast(file.path(rootdir, "MEIER_G_AEI_1910.ASC"))
+asc_1900 <- rast(file.path(rootdir, "MEIER_G_AEI_1900.ASC"))
+
+
+# check crs 
+st_crs(asc_2015)
+
+qazvin_2015 <- crop(asc_2015, qazvin_box)
+qazvin_2015_G <- crop(asc_2015_G, qazvin_box)
+qazvin_2010 <- crop(asc_2010, qazvin_box)
+qazvin_2005 <- crop(asc_2005, qazvin_box)
+qazvin_2000 <- crop(asc_2000, qazvin_box)
+qazvin_1995 <- crop(asc_1995, qazvin_box)
+qazvin_1990 <- crop(asc_1990, qazvin_box)
+qazvin_1985 <- crop(asc_1985, qazvin_box)
+qazvin_1980 <- crop(asc_1980, qazvin_box)
+qazvin_1970 <- crop(asc_1970, qazvin_box)
+qazvin_1960 <- crop(asc_1960, qazvin_box)
+qazvin_1950 <- crop(asc_1950, qazvin_box)
+qazvin_1940 <- crop(asc_1950, qazvin_box)
+qazvin_1930 <- crop(asc_1950, qazvin_box)
+qazvin_1920 <- crop(asc_1950, qazvin_box)
+qazvin_1910 <- crop(asc_1910, qazvin_box)
+qazvin_1900 <- crop(asc_1900, qazvin_box)
+
+plot(qazvin_2015)
+plot(qazvin_2015_G)
+plot(qazvin_2010)
+plot(qazvin_2005)
+plot(qazvin_2000)
+plot(qazvin_1995)
+plot(qazvin_1990)
+plot(qazvin_1960)
+plot(qazvin_1900)
+
+```
