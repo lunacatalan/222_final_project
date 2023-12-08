@@ -1,5 +1,5 @@
 ---
-title: "EDS 222: Assignment 04 (due: Dec 8th, 5pm)"
+title: "Climatic Trend and Agriculture on Declining Water Levels in Arid Aquifer, Iran"
 author: "Luna Herschenfeld-Catalan"
 date: "`r Sys.Date()`"
 output:
@@ -12,7 +12,35 @@ output:
     latex_engine: xelatex
 ---
 
-```{r}
+# Problem
+
+Groundwater supplies water resources for drinking water and irrigated agriculture for millions of people around the world[CITE]. Groundwater levels are declining around the world. This is partly do to changing climatic trends[CITE], where declines in precipitation is leading to declines in recharge of groundwater storage in aquifers. Over the last couple of decades, agriculture production in many areas has also increased[CITE]. In arid regions, agriculture is mainly fed by groundwater since there is not enough surface water available, or it does not rain enough.
+
+In the last 40 years, groundwater level declines in the Qazvin Plain, in Iran have accelerated. - Why agriculture is what I am looking at: <https://www.researchgate.net/profile/Zahra-Mousavi-16/publication/339627057_Land_subsidence_from_interferometric_SAR_andgroundwater_patterns_in_the_Qazvin_plain_Iran/links/5f604a6a299bf1d43c04ed23/Land-subsidence-from-interferometric-SAR-andgroundwater-patterns-in-the-Qazvin-plain-Iran.pdf>
+
+To determine next steps with groundwater management, it is important to understand what factors are playing key roles in this rapid decline. This analysis can help guide groundwater management strategy...
+
+# Data
+
+Groundwater level data is stored as an excel file as `groundwater_time_series.xlsx` from the year 1978-2018, with 2002-2003 data missing. The water level is a measurement of depth to water in (WHAT ARE THE UNITS???).
+
+Precipitation data is stored as an excel file as `annual_precip.xlsx` from the year 1979-2022, and measures the total annual precipitation in the Qazvin Plain for each year.
+
+To estimate the role of agriculture, I had a couple of approaches:
+
+1\. The first was to use area equipped for irrigation from <https://zenodo.org/records/7809342>. This data can be found in the `AEI_ASC` folder.
+
+2\. The second approach was to query landsat data and calculate the change in NDVI over the time period. These images are available beginning at 1984-2021.
+- The analysis of these images was conducted in Python using the Microsoft Planetary Computer
+- The files are stored in the `ag_density` folder
+
+# What we want to know
+
+Does precipitation trends or agricultural production play a greater role in groundwater level decline in the Qazvin aquifer over 1984-2018?
+
+## Load Libraries
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
 # load libraries
 library(foreign)
 library(tidyverse)
@@ -21,18 +49,23 @@ library(sf)
 library(terra)
 library(spData)
 library(geodata)
-library(spDataLarge)
+#library(spDataLarge)
 library(modelr)
 library(ggplot2)
 library(knitr)
 library(broom)
+library(patchwork)
+library(lubridate) # for dates
+library(tsibble)
+library(feasts)
 ```
 
 ## Read in data
 
-- Groundwater level time series data from 1978-2018
+Groundwater level time series data from 1978-2018
+- Calculated the mean groundwater level per year
 
-```{r}
+```{r include = TRUE, message = FALSE, warning = FALSE}
 gw_level_total <- readxl::read_xlsx(here("data/groundwater_time_series.xlsx")) %>% 
   select(Year, WaterLevel) %>% # select years
   separate_wider_delim(col = Year, 
@@ -47,16 +80,17 @@ gw_mean <- gw_level_total %>%
   summarize(mean = mean(WaterLevel))
 ```
 
-- Precipitation time series data from 
+Precipitation time series data from
 
-```{r}
-precip <- readxl::read_xlsx(here("data/precip.xlsx")) %>% 
+```{r include = TRUE, message = FALSE, warning = FALSE}
+precip <- readxl::read_xlsx(here("data/annual_precip.xlsx")) %>% 
   select(!StnID) # remove column 
 
 ```
 
-- Load in ndvi data
-```{r}
+Load in ndvi data
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
 ndvi_percent_aquifer <- read_csv(here("data/ag_density/ndvi_percent_aquifer.csv")) %>% 
   select(year, percent) %>% 
   rename(aq_percent_ndvi = percent)
@@ -67,26 +101,123 @@ ndvi_percent_well <- read_csv(here("data/ag_density/ndvi_percent_well_df.csv")) 
 
 ndvi <- ndvi_percent_aquifer %>% 
   full_join(ndvi_percent_well, by = c("year" = "years"))
+
+ndvi_sum <- read_csv(here("data/ag_density/ndvi_sum.csv")) %>% 
+  select(year, sum)
   
 ```
 
+## Prepare Data 
 
-- Join Groundwater level and precip data together
+### Join Groundwater level and precip data together
 
-```{r}
+This code chunk will create a dataframe with all of the variables for each year:
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_clean <- gw_mean %>% 
   left_join(precip, by = c("Year" = "year")) %>% 
   left_join(ndvi, by = c("Year" = "year")) %>% 
+  left_join(ndvi_sum, by = c("Year" = "year")) %>% 
   rename(level = mean,
          annual_precip = total_annual_precip)
 ```
 
-# Run regression model 
+## Run regression model
 
-```{r}
-mod <- lm(level ~ annual_precip + aq_percent_ndvi, data = qazvin_clean)
+Here, I want to see what the relationship between precipitation and different ndvi measures on the groundwater level\
 
-summary(mod)
+To visualize the trends run this chunk right here:
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+level_plot <- ggplot(qazvin_clean) + 
+  geom_point(aes(x = Year, 
+            y = level))
+
+precip_plot <- ggplot(qazvin_clean) + 
+  geom_line(aes(x = Year, 
+            y = annual_precip))
+
+
+ndvi_plot <- qazvin_clean %>% 
+  pivot_longer(cols = 4:5, 
+               names_to = 'ndvi_values', 
+               values_to = 'values') %>% 
+  ggplot() + 
+  geom_point(aes(x = Year, 
+            y = values, 
+            color = ndvi_values))
+            
+
+sum_plot <- ggplot(ndvi_sum) + 
+  geom_point(aes(x = year, 
+            y = sum))
+
+
+ggplot() +
+  geom_point(data = qazvin_clean, 
+             aes(x = sum, 
+                 y = level,
+                 color = Year))
+
+
+# precipitation and ndvi sum do not have strong correlation
+ggplot() +
+  geom_point(data = qazvin_clean, 
+             aes(x = sum, 
+                 y = annual_precip))
+
+sum_plot + level_plot + ndvi_plot + precip_plot
+```
+
+## Run lm() on ndvi sum values at each location
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+# mod1 for the aquifer percent pixel cover
+lm(level ~ annual_precip + aq_percent_ndvi, data = qazvin_clean) %>% 
+  summary()
+
+# mod2 for the aquifer sum --> has a sttistically significant result 
+lm(level ~ annual_precip + sum, data = qazvin_clean) %>% 
+  summary()
 
 ```
 
+## Looking at the decomp of sum
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+qazvin_ts_sum <- as_tsibble(ndvi_sum, index = "year") %>% 
+  filter(!is.na(sum)) %>% 
+  model(classical_decomposition(sum, type = "additive")) %>% 
+  components() %>% 
+  autoplot()
+
+qazvin_ts_sum
+
+qazvin_ts_2018 <- as_tsibble(qazvin_clean, index = "Year") %>% 
+  fill_gaps() %>% 
+  filter(!is.na(sum)) %>% 
+  filter(Year > 2003) %>% 
+  model(STL(sum, type = "additive")) %>% 
+  components() %>% 
+  autoplot()
+
+qazvin_ts_2001
+
+qazvin_ts_2018
+```
+
+## Looking at the decomp of sum
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+qazvin_ts_2001 <- as_tsibble(qazvin_clean, index = "Year") %>% 
+  fill_gaps() %>% 
+  filter(!is.na(sum)) %>% 
+  filter(Year <= 2001) %>% 
+  model(STL(sum, type = "additive")) %>% 
+  components() %>% 
+  autoplot()
+
+qazvin_ts_2001
+```
