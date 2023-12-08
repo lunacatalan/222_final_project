@@ -77,14 +77,90 @@ gw_level_total <- readxl::read_xlsx(here("data/groundwater_time_series.xlsx")) %
 # these are the mean depth to groundwater level
 gw_mean <- gw_level_total %>% 
   group_by(Year) %>% 
-  summarize(mean = mean(WaterLevel))
+  summarize(mean = mean(WaterLevel)) %>% 
+  rename(year = Year)
 ```
 
 Precipitation time series data from
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-precip <- readxl::read_xlsx(here("data/annual_precip.xlsx")) %>% 
-  select(!StnID) # remove column 
+precip <- readxl::read_xlsx(here("data/annual_precip.xlsx")) %>%
+  select(!StnID) # remove column
+```
+
+Load in qazvin aquifer shapefile
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+qazvin_aquifer <- st_read(here('data/qazvin/qazvin.shp'))
+
+```
+
+
+Load in irrigation data
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+qazvin_box <- data.frame(name = c("1", "2", "3", "4"),
+                         long = c(49.31937729228426, 49.31937729228426, 51.12523623049739, 51.12523623049739),
+                         lat = c(36.493217304744505, 35.52665079679184, 35.52665079679184, 36.493217304744505))
+
+qazvin_box = st_polygon(list(
+  cbind(
+    qazvin_box$long[c(1, 2, 3, 4, 1)],
+    qazvin_box$lat[c(1, 2, 3, 4, 1)]
+  )
+))
+
+# list files for each band, including the full file path
+filelist <- list.files(here("data/AEI_ASC/"), # say what folder to read the files in 
+                       full.names = TRUE)
+
+# read in and store as a raster stack
+asc_1900_2015 <- rast(filelist) 
+
+# need to set crs
+qazvin_box <- st_sfc(qazvin_box,
+                     crs = st_crs(asc_1900_2015))
+
+irrigation_qazvin <- asc_1900_2015 %>% 
+  crop(., qazvin_box)
+
+names(irrigation_qazvin) <- c("1900", "1910", "1920", "1930", "1940", "1950", "1960", "1970", "1980", "1985", "1990", "1995", "2000", "2005", "2010", "2015")
+
+plot(irrigation_qazvin)
+```
+
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+# transform shapefle to crs of irrigation map
+qazvin_aquifer <- st_transform(qazvin_aquifer, 
+                         crs = st_crs(irrigation_qazvin))
+
+ir_aq <- irrigation_qazvin %>% 
+  crop(., qazvin_aquifer)
+
+plot(ir_aq)
+ir_aq
+```
+
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+ir_df <- as.data.frame(ir_aq) %>% 
+  pivot_longer(1:16, 
+               names_to = "year",
+               values_to = "values") %>% 
+  mutate_at(vars(year), as.numeric)
+  
+
+ir_summary <- ir_df %>% 
+  group_by(year) %>% 
+  mutate(ir_mean = mean(values),
+         ir_sd = sd(values),
+         ir_max = max(values),
+         ir_median = median(values),
+         ir_sum = sum(values)) %>% 
+  select(!values) %>% 
+  slice(16)
 
 ```
 
@@ -107,7 +183,7 @@ ndvi_sum <- read_csv(here("data/ag_density/ndvi_sum.csv")) %>%
   
 ```
 
-## Prepare Data 
+## Prepare Data to Analyze
 
 ### Join Groundwater level and precip data together
 
@@ -115,9 +191,10 @@ This code chunk will create a dataframe with all of the variables for each year:
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_clean <- gw_mean %>% 
-  left_join(precip, by = c("Year" = "year")) %>% 
-  left_join(ndvi, by = c("Year" = "year")) %>% 
-  left_join(ndvi_sum, by = c("Year" = "year")) %>% 
+  left_join(precip, by = "year") %>% 
+  left_join(ndvi, by = "year") %>% 
+  left_join(ndvi_sum, by = "year") %>% 
+  left_join(ir_summary, by = "year") %>% 
   rename(level = mean,
          annual_precip = total_annual_precip)
 ```
@@ -131,11 +208,11 @@ To visualize the trends run this chunk right here:
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 
 level_plot <- ggplot(qazvin_clean) + 
-  geom_point(aes(x = Year, 
+  geom_point(aes(x = year, 
             y = level))
 
 precip_plot <- ggplot(qazvin_clean) + 
-  geom_line(aes(x = Year, 
+  geom_line(aes(x = year, 
             y = annual_precip))
 
 
@@ -144,7 +221,7 @@ ndvi_plot <- qazvin_clean %>%
                names_to = 'ndvi_values', 
                values_to = 'values') %>% 
   ggplot() + 
-  geom_point(aes(x = Year, 
+  geom_point(aes(x = year, 
             y = values, 
             color = ndvi_values))
             
@@ -158,7 +235,7 @@ ggplot() +
   geom_point(data = qazvin_clean, 
              aes(x = sum, 
                  y = level,
-                 color = Year))
+                 color = year))
 
 
 # precipitation and ndvi sum do not have strong correlation
@@ -166,6 +243,11 @@ ggplot() +
   geom_point(data = qazvin_clean, 
              aes(x = sum, 
                  y = annual_precip))
+
+ggplot() +
+  geom_point(data = qazvin_clean, 
+             aes(x = year, 
+                 y = ir_mean))
 
 sum_plot + level_plot + ndvi_plot + precip_plot
 ```
@@ -177,8 +259,12 @@ sum_plot + level_plot + ndvi_plot + precip_plot
 lm(level ~ annual_precip + aq_percent_ndvi, data = qazvin_clean) %>% 
   summary()
 
-# mod2 for the aquifer sum --> has a sttistically significant result 
+# mod2 for the aquifer sum --> has a statistically significant result 
 lm(level ~ annual_precip + sum, data = qazvin_clean) %>% 
+  summary()
+
+# mod3 for irrigation mean
+lm(level ~ annual_precip + ir_mean, data = qazvin_clean) %>% 
   summary()
 
 ```
