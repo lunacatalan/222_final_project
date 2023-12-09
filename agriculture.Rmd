@@ -92,8 +92,39 @@ Load in qazvin aquifer shapefile
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_aquifer <- st_read(here('data/qazvin/qazvin.shp'))
+```
+
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+quartile_names <- c("min", "q1", "median", "q3", "max")
+
+
+savi <- read_csv(here("data/ag_density/savi_buffer_quartiles.csv")) %>% 
+  rename("quartiles" = "...1") %>% 
+  replace("quartiles", quartile_names) %>% 
+  pivot_longer(col = 2:67,
+               names_to = 'date', 
+               values_to = 'values')
+
+savi_date <- ymd(savi$date, format="%Y%m%d") 
+savi_date <- savi_date[-length(savi_date)]
+
+savi <- savi %>% 
+  separate(col = 2, 
+           into = "string",
+           sep = "_02") %>%
+  separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
+  select(!left) %>% 
+  cbind(savi_date) %>% 
+  select(quartiles,
+         date = savi_date,
+         values)
+
 
 ```
+
+
 
 
 Load in irrigation data
