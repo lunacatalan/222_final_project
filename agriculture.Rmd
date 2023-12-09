@@ -96,7 +96,6 @@ qazvin_aquifer <- st_read(here('data/qazvin/qazvin.shp'))
 
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-
 quartile_names <- c("min", "q1", "median", "q3", "max")
 
 
@@ -105,23 +104,44 @@ savi <- read_csv(here("data/ag_density/savi_buffer_quartiles.csv")) %>%
   replace("quartiles", quartile_names) %>% 
   pivot_longer(col = 2:67,
                names_to = 'date', 
-               values_to = 'values')
+               values_to = 'values') %>% 
+    separate(col = 2, 
+           into = "string",
+           sep = "_02") %>% 
+  separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
+  select(!left)
 
 savi_date <- ymd(savi$date, format="%Y%m%d") 
 savi_date <- savi_date[-length(savi_date)]
 
 savi <- savi %>% 
-  separate(col = 2, 
-           into = "string",
-           sep = "_02") %>%
-  separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
-  select(!left) %>% 
   cbind(savi_date) %>% 
   select(quartiles,
          date = savi_date,
-         values)
+         values) %>% 
+  filter(savi$quartiles != "min")
+
+savi_years <- savi %>% 
+  separate_wider_delim(cols = 2, 
+                       delim = "-05-", 
+                       names = c("year", "md")) %>% 
+  select(!md) %>% 
+  group_by(year, quartiles) %>% 
+  summarize(val = mean(values)) %>% 
+  mutate_at(vars(year), as.numeric) %>% 
+  pivot_wider(names_from = quartiles,
+              values_from = val)
+  
+```
 
 
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+ggplot() +
+  geom_line(data = savi, 
+            aes(x = date, 
+                y = values, 
+                color = quartiles))
 ```
 
 
@@ -226,8 +246,10 @@ qazvin_clean <- gw_mean %>%
   left_join(ndvi, by = "year") %>% 
   left_join(ndvi_sum, by = "year") %>% 
   left_join(ir_summary, by = "year") %>% 
+  left_join(savi_years, by = 'year') %>% 
   rename(level = mean,
          annual_precip = total_annual_precip)
+
 ```
 
 ## Run regression model
@@ -296,6 +318,10 @@ lm(level ~ annual_precip + sum, data = qazvin_clean) %>%
 
 # mod3 for irrigation mean
 lm(level ~ annual_precip + ir_mean, data = qazvin_clean) %>% 
+  summary()
+
+# mod4 for savi
+lm(level ~ annual_precip + q1, data = qazvin_clean) %>% 
   summary()
 
 ```
