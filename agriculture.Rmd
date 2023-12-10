@@ -30,9 +30,7 @@ To estimate the role of agriculture, I had a couple of approaches:
 
 1\. The first was to use area equipped for irrigation from <https://zenodo.org/records/7809342>. This data can be found in the `AEI_ASC` folder.
 
-2\. The second approach was to query landsat data and calculate the change in NDVI over the time period. These images are available beginning at 1984-2021.
-- The analysis of these images was conducted in Python using the Microsoft Planetary Computer
-- The files are stored in the `ag_density` folder
+2\. The second approach was to query landsat data and calculate the change in NDVI over the time period. These images are available beginning at 1984-2021. - The analysis of these images was conducted in Python using the Microsoft Planetary Computer - The files are stored in the `ag_density` folder
 
 # What we want to know
 
@@ -62,8 +60,9 @@ library(feasts)
 
 ## Read in data
 
-Groundwater level time series data from 1978-2018
-- Calculated the mean groundwater level per year
+### Groundwater level time series data from 1978-2018
+
+-   Calculated the mean groundwater level per year
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 gw_level_total <- readxl::read_xlsx(here("data/groundwater_time_series.xlsx")) %>% 
@@ -81,19 +80,22 @@ gw_mean <- gw_level_total %>%
   rename(year = Year)
 ```
 
-Precipitation time series data from
+### Precipitation time series data from
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 precip <- readxl::read_xlsx(here("data/annual_precip.xlsx")) %>%
   select(!StnID) # remove column
 ```
 
-Load in qazvin aquifer shapefile
+### Load in qazvin aquifer shapefile
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_aquifer <- st_read(here('data/qazvin/qazvin.shp'))
 ```
 
+### Read in SAVI data
+
+### Read in the data from the Buffer zone
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 quartile_names <- c("min", "q1", "median", "q3", "max")
@@ -134,9 +136,7 @@ savi_years <- savi %>%
   
 ```
 
-
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-
 ggplot() +
   geom_line(data = savi, 
             aes(x = date, 
@@ -144,10 +144,63 @@ ggplot() +
                 color = quartiles))
 ```
 
+### Read in the data from the aquifer zone 
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+quartile_names <- c("min_aq", "q1_aq", "median_aq", "q3_aq", "max_aq", "sum_aq")
 
 
+savi_aq <- read_csv(here("data/ag_density/savi_aq_df.csv")) %>% 
+  rename("quartiles" = "...1") %>% 
+  replace("quartiles", quartile_names) %>% 
+  pivot_longer(col = 2:66,
+               names_to = 'date', 
+               values_to = 'values') %>% 
+    separate(col = 2, 
+           into = "string",
+           sep = "_02") %>% 
+  separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
+  select(!left)
 
-Load in irrigation data
+savi_date_aq <- ymd(savi_aq$date, format="%Y%m%d") 
+savi_date_aq <- savi_date_aq[-length(savi_date_aq)]
+
+savi_aq <- savi_aq %>% 
+  cbind(savi_date_aq) %>% 
+  select(quartiles,
+         date = savi_date_aq,
+         values) %>% 
+  filter(savi_aq$quartiles != "min_aq")
+
+savi_years_aq <- savi_aq %>% 
+  separate_wider_delim(cols = 2, 
+                       delim = "-05-", 
+                       names = c("year", "md")) %>% 
+  select(!md) %>% 
+  group_by(year, quartiles) %>% 
+  summarize(val = mean(values)) %>% 
+  mutate_at(vars(year), as.numeric) %>% 
+  pivot_wider(names_from = quartiles,
+              values_from = val)
+```
+
+```{r include = TRUE, message = FALSE, warning = FALSE, eval = FALSE}
+savi_aq <- savi_aq %>% 
+  cbind(savi_date_aq) %>% 
+  select(quartiles,
+         date = savi_date_aq,
+         values) %>% 
+  filter(savi_aq$quartiles != "sum_aq")
+
+ggplot() +
+  geom_line(data = savi_aq, 
+            aes(x = date, 
+                y = values, 
+                color = quartiles))
+```
+
+### Load in irrigation data
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_box <- data.frame(name = c("1", "2", "3", "4"),
@@ -180,7 +233,6 @@ names(irrigation_qazvin) <- c("1900", "1910", "1920", "1930", "1940", "1950", "1
 plot(irrigation_qazvin)
 ```
 
-
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 # transform shapefle to crs of irrigation map
 qazvin_aquifer <- st_transform(qazvin_aquifer, 
@@ -192,7 +244,6 @@ ir_aq <- irrigation_qazvin %>%
 plot(ir_aq)
 ir_aq
 ```
-
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 
@@ -215,7 +266,7 @@ ir_summary <- ir_df %>%
 
 ```
 
-Load in ndvi data
+### Load in ndvi data
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 ndvi_percent_aquifer <- read_csv(here("data/ag_density/ndvi_percent_aquifer.csv")) %>% 
@@ -246,15 +297,14 @@ qazvin_clean <- gw_mean %>%
   left_join(ndvi, by = "year") %>% 
   left_join(ndvi_sum, by = "year") %>% 
   left_join(ir_summary, by = "year") %>% 
-  left_join(savi_years, by = 'year') %>% 
+  left_join(savi_years, by = 'year') %>%
+  left_join(savi_years_aq, by = "year") %>% 
   rename(level = mean,
          annual_precip = total_annual_precip)
 
 ```
 
 ## Run regression model
-
-Here, I want to see what the relationship between precipitation and different ndvi measures on the groundwater level\
 
 To visualize the trends run this chunk right here:
 
@@ -284,11 +334,10 @@ sum_plot <- ggplot(ndvi_sum) +
             y = sum))
 
 
-ggplot() +
+max_savi <- ggplot() +
   geom_point(data = qazvin_clean, 
-             aes(x = sum, 
-                 y = level,
-                 color = year))
+             aes(x = year, 
+                 y = max))
 
 
 # precipitation and ndvi sum do not have strong correlation
@@ -302,7 +351,22 @@ ggplot() +
              aes(x = year, 
                  y = ir_mean))
 
-sum_plot + level_plot + ndvi_plot + precip_plot
+#sum_plot + level_plot + ndvi_plot + precip_plot +
+max_savi
+```
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+ggplot() +
+  geom_line(data = savi_years_aq, 
+            aes(x = sum, 
+                y = level)) +
+  geom_smooth(method = "lm", # tell what to fit model to 
+              formula = y ~ x, # association between variables
+              se = FALSE) + #standard error
+  labs(x = 'sum of SAVI values over Aquifer', 
+       y = 'depth to groundwater') +
+  theme_minimal()
+
 ```
 
 ## Run lm() on ndvi sum values at each location
@@ -321,10 +385,41 @@ lm(level ~ annual_precip + ir_mean, data = qazvin_clean) %>%
   summary()
 
 # mod4 for savi
-lm(level ~ annual_precip + q1, data = qazvin_clean) %>% 
+lm(level ~ q1, data = qazvin_clean) %>% 
+  summary()
+
+# mod4 for savi
+lm(level ~ q1 + annual_precip, data = qazvin_clean) %>% 
+  summary()
+
+# mod4 for savi aquifer
+lm(level ~ sum, data = qazvin_clean) %>% 
   summary()
 
 ```
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+ggplot(data = qazvin_clean, 
+       aes(rev(x = q1), # reverse the y axis
+                 y = level)) +
+  geom_point() +
+  geom_smooth(method = "lm", # tell what to fit model to 
+              formula = y ~ x, # association between variables
+              se = FALSE) + #standard error
+  labs(x = '1st quartile SAVI', 
+       y = 'depth to groundwater') +
+  theme_minimal()
+
+# mod4 for savi
+lm(level ~ q1 + annual_precip, data = qazvin_clean) %>% 
+  summary()
+
+mod <- lm(level ~ q1 + annual_precip, data = qazvin_clean)
+
+
+```
+
+1st quartile: The SAVI level that 25% of the data falls below - When 25% of the data is below a temperature of 0 degrees, the groundwater level is 100.84m. For every 1 increase in degrees that 25% of the data falls under, the depth to groundwater increases by 423.96 m. - To make this applicable to the graph, the degrees are scaled down by a factor of 10, so that for every 0.1 degree increase in the degrees that 25% of the data falls under, the depth to groundwater increases by 42.396 m.
 
 ## Looking at the decomp of sum
 
