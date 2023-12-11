@@ -98,37 +98,40 @@ qazvin_aquifer <- st_read(here('data/qazvin/qazvin.shp'))
 ### Read in the data from the Buffer zone
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-quartile_names <- c("min", "q1", "median", "q3", "max")
+quartile_names <- c("min_b", "q1_b", "median_b", "q3_b", "max_b", "sum_b", "mean_b")
 
 
-savi <- read_csv(here("data/ag_density/savi_buffer_quartiles.csv")) %>% 
+buffer_ag <- read_csv(here("data/ag_density/buffer_df.csv")) %>% 
   rename("quartiles" = "...1") %>% 
   replace("quartiles", quartile_names) %>% 
-  pivot_longer(col = 2:67,
+  pivot_longer(col = 2:131,
                names_to = 'date', 
                values_to = 'values') %>% 
-    separate(col = 2, 
+  separate_wider_delim(cols = 2, 
+                       delim = ">_", names = c("date", "type")) %>% 
+  separate(col = 2, 
            into = "string",
            sep = "_02") %>% 
   separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
   select(!left)
 
-savi_date <- ymd(savi$date, format="%Y%m%d") 
+savi_date <- ymd(buffer_ag$date, format="%Y%m%d") 
 savi_date <- savi_date[-length(savi_date)]
 
-savi <- savi %>% 
+buffer_ag <- buffer_ag %>% 
   cbind(savi_date) %>% 
   select(quartiles,
          date = savi_date,
-         values) %>% 
-  filter(savi$quartiles != "min")
+         values,
+         type) %>% 
+  filter(buffer_ag$quartiles != "min")
 
-savi_years <- savi %>% 
+buffer_years <- buffer_ag %>% 
   separate_wider_delim(cols = 2, 
                        delim = "-05-", 
                        names = c("year", "md")) %>% 
   select(!md) %>% 
-  group_by(year, quartiles) %>% 
+  group_by(year, quartiles, type) %>% 
   summarize(val = mean(values)) %>% 
   mutate_at(vars(year), as.numeric) %>% 
   pivot_wider(names_from = quartiles,
@@ -138,47 +141,50 @@ savi_years <- savi %>%
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 ggplot() +
-  geom_line(data = savi, 
-            aes(x = date, 
-                y = values, 
-                color = quartiles))
+  geom_line(data = buffer_years, 
+            aes(x = year, 
+                y = median_b, 
+                color = type))
 ```
 
 ### Read in the data from the aquifer zone 
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 
-quartile_names <- c("min_aq", "q1_aq", "median_aq", "q3_aq", "max_aq", "sum_aq")
+quartile_names <- c("min_a", "q1_a", "median_a", "q3_a", "max_a", "sum_a", "mean_a")
 
 
-savi_aq <- read_csv(here("data/ag_density/savi_aq_df.csv")) %>% 
+aquifer_ag <- read_csv(here("data/ag_density/aq_df.csv")) %>% 
   rename("quartiles" = "...1") %>% 
   replace("quartiles", quartile_names) %>% 
-  pivot_longer(col = 2:66,
+  pivot_longer(col = 2:131,
                names_to = 'date', 
                values_to = 'values') %>% 
-    separate(col = 2, 
+  separate_wider_delim(cols = 2, 
+                       delim = ">_", names = c("date", "type")) %>% 
+  separate(col = 2, 
            into = "string",
            sep = "_02") %>% 
   separate_wider_delim(cols = 2, delim = "165035_", names = c("left", "date")) %>% 
   select(!left)
 
-savi_date_aq <- ymd(savi_aq$date, format="%Y%m%d") 
-savi_date_aq <- savi_date_aq[-length(savi_date_aq)]
+savi_date <- ymd(buffer_ag$date, format="%Y%m%d") 
+savi_date <- savi_date[-length(savi_date)]
 
-savi_aq <- savi_aq %>% 
-  cbind(savi_date_aq) %>% 
+aquifer_ag <- aquifer_ag %>% 
+  cbind(savi_date) %>% 
   select(quartiles,
-         date = savi_date_aq,
-         values) %>% 
-  filter(savi_aq$quartiles != "min_aq")
+         date = savi_date,
+         values,
+         type) %>% 
+  filter(aquifer_ag$quartiles != "min")
 
-savi_years_aq <- savi_aq %>% 
+aquifer_years <- aquifer_ag %>% 
   separate_wider_delim(cols = 2, 
                        delim = "-05-", 
                        names = c("year", "md")) %>% 
   select(!md) %>% 
-  group_by(year, quartiles) %>% 
+  group_by(year, quartiles, type) %>% 
   summarize(val = mean(values)) %>% 
   mutate_at(vars(year), as.numeric) %>% 
   pivot_wider(names_from = quartiles,
@@ -186,15 +192,11 @@ savi_years_aq <- savi_aq %>%
 ```
 
 ```{r include = TRUE, message = FALSE, warning = FALSE, eval = FALSE}
-savi_aq <- savi_aq %>% 
-  cbind(savi_date_aq) %>% 
-  select(quartiles,
-         date = savi_date_aq,
-         values) %>% 
-  filter(savi_aq$quartiles != "sum_aq")
+plot_aq <- aquifer_ag %>% 
+  filter(aquifer_ag$quartiles != "sum_a")
 
 ggplot() +
-  geom_line(data = savi_aq, 
+  geom_line(data = plot_aq, 
             aes(x = date, 
                 y = values, 
                 color = quartiles))
@@ -266,25 +268,6 @@ ir_summary <- ir_df %>%
 
 ```
 
-### Load in ndvi data
-
-```{r include = TRUE, message = FALSE, warning = FALSE}
-ndvi_percent_aquifer <- read_csv(here("data/ag_density/ndvi_percent_aquifer.csv")) %>% 
-  select(year, percent) %>% 
-  rename(aq_percent_ndvi = percent)
-
-ndvi_percent_well <- read_csv(here("data/ag_density/ndvi_percent_well_df.csv")) %>% 
-  select(years, percent) %>% 
-  rename(well_percent_ndvi = percent)
-
-ndvi <- ndvi_percent_aquifer %>% 
-  full_join(ndvi_percent_well, by = c("year" = "years"))
-
-ndvi_sum <- read_csv(here("data/ag_density/ndvi_sum.csv")) %>% 
-  select(year, sum)
-  
-```
-
 ## Prepare Data to Analyze
 
 ### Join Groundwater level and precip data together
@@ -294,11 +277,7 @@ This code chunk will create a dataframe with all of the variables for each year:
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_clean <- gw_mean %>% 
   left_join(precip, by = "year") %>% 
-  left_join(ndvi, by = "year") %>% 
-  left_join(ndvi_sum, by = "year") %>% 
   left_join(ir_summary, by = "year") %>% 
-  left_join(savi_years, by = 'year') %>%
-  left_join(savi_years_aq, by = "year") %>% 
   rename(level = mean,
          annual_precip = total_annual_precip)
 
