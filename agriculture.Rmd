@@ -47,7 +47,6 @@ library(sf)
 library(terra)
 library(spData)
 library(geodata)
-#library(spDataLarge)
 library(modelr)
 library(ggplot2)
 library(knitr)
@@ -135,7 +134,28 @@ buffer_years <- buffer_ag %>%
   summarize(val = mean(values)) %>% 
   mutate_at(vars(year), as.numeric) %>% 
   pivot_wider(names_from = quartiles,
-              values_from = val)
+              values_from = val) %>% 
+    ungroup()
+
+# store just the NDVI values 
+buffer_ndvi <- buffer_years %>% 
+  filter(type %in% "ndvi") %>% 
+  rename(qi_bn = "q1_b", 
+         median_bn = "median_b", 
+         q3_bn = "q3_b", 
+         max_bn = "max_b", 
+         sum_bn = "sum_b", 
+         mean_bn = "mean_b")
+
+# store just the SAVI
+buffer_savi <- buffer_years %>% 
+  filter(type %in% "savi") %>% 
+  rename(qi_bs = "q1_b", 
+         median_bs = "median_b", 
+         q3_bs = "q3_b", 
+         max_bs = "max_b", 
+         sum_bs = "sum_b", 
+         mean_bs = "mean_b")
   
 ```
 
@@ -147,7 +167,7 @@ ggplot() +
                 color = type))
 ```
 
-### Read in the data from the aquifer zone 
+### Read in the data from the aquifer zone
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 
@@ -188,7 +208,26 @@ aquifer_years <- aquifer_ag %>%
   summarize(val = mean(values)) %>% 
   mutate_at(vars(year), as.numeric) %>% 
   pivot_wider(names_from = quartiles,
-              values_from = val)
+              values_from = val) %>% 
+  ungroup()
+
+aquifer_ndvi <- aquifer_years %>% 
+  filter(type %in% "ndvi") %>% 
+  rename(qi_an = "q1_a", 
+         median_an = "median_a", 
+         q3_an = "q3_a", 
+         max_an = "max_a", 
+         sum_an = "sum_a", 
+         mean_an = "mean_a")
+
+aquifer_savi <- aquifer_years %>% 
+  filter(type %in% "savi") %>% 
+  rename(qi_as = "q1_a", 
+         median_as = "median_a", 
+         q3_as = "q3_a", 
+         max_as = "max_a", 
+         sum_as = "sum_a", 
+         mean_as = "mean_a")
 ```
 
 ```{r include = TRUE, message = FALSE, warning = FALSE, eval = FALSE}
@@ -258,11 +297,11 @@ ir_df <- as.data.frame(ir_aq) %>%
 
 ir_summary <- ir_df %>% 
   group_by(year) %>% 
-  mutate(ir_mean = mean(values),
-         ir_sd = sd(values),
-         ir_max = max(values),
-         ir_median = median(values),
-         ir_sum = sum(values)) %>% 
+  mutate(ir_mean = mean(values, na.rm = TRUE),
+         ir_sd = sd(values, na.rm = TRUE),
+         ir_max = max(values, na.rm = TRUE),
+         ir_median = median(values, na.rm = TRUE),
+         ir_sum = sum(values, na.rm = TRUE)) %>% 
   select(!values) %>% 
   slice(16)
 
@@ -270,15 +309,19 @@ ir_summary <- ir_df %>%
 
 ## Prepare Data to Analyze
 
-### Join Groundwater level and precip data together
+### Join Groundwater level, Precipitation data, and NDVI/SAVI values together
 
 This code chunk will create a dataframe with all of the variables for each year:
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-qazvin_clean <- gw_mean %>% 
-  left_join(precip, by = "year") %>% 
+qazvin_clean <- precip %>% 
+  left_join(gw_mean, by = "year") %>% 
   left_join(ir_summary, by = "year") %>% 
-  rename(level = mean,
+  left_join(aquifer_ndvi, by = "year") %>% 
+  left_join(aquifer_savi, by = "year") %>%
+  left_join(buffer_ndvi, by = "year") %>% 
+  left_join(buffer_savi, by = "year") %>%
+  rename(gw_level = mean,
          annual_precip = total_annual_precip)
 
 ```
@@ -288,91 +331,121 @@ qazvin_clean <- gw_mean %>%
 To visualize the trends run this chunk right here:
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-
-level_plot <- ggplot(qazvin_clean) + 
-  geom_point(aes(x = year, 
-            y = level))
-
-precip_plot <- ggplot(qazvin_clean) + 
-  geom_line(aes(x = year, 
-            y = annual_precip))
-
-
-ndvi_plot <- qazvin_clean %>% 
-  pivot_longer(cols = 4:5, 
-               names_to = 'ndvi_values', 
-               values_to = 'values') %>% 
-  ggplot() + 
-  geom_point(aes(x = year, 
-            y = values, 
-            color = ndvi_values))
-            
-
-sum_plot <- ggplot(ndvi_sum) + 
-  geom_point(aes(x = year, 
-            y = sum))
-
-
-max_savi <- ggplot() +
-  geom_point(data = qazvin_clean, 
-             aes(x = year, 
-                 y = max))
-
-
-# precipitation and ndvi sum do not have strong correlation
-ggplot() +
-  geom_point(data = qazvin_clean, 
-             aes(x = sum, 
-                 y = annual_precip))
-
-ggplot() +
-  geom_point(data = qazvin_clean, 
-             aes(x = year, 
-                 y = ir_mean))
-
-#sum_plot + level_plot + ndvi_plot + precip_plot +
-max_savi
-```
-
-```{r include = TRUE, message = FALSE, warning = FALSE}
-ggplot() +
-  geom_line(data = savi_years_aq, 
-            aes(x = sum, 
-                y = level)) +
+ggplot(qazvin_clean, aes(x = mean_bn,
+                 y = mean_bs)) +
+  geom_point() +
   geom_smooth(method = "lm", # tell what to fit model to 
               formula = y ~ x, # association between variables
               se = FALSE) + #standard error
-  labs(x = 'sum of SAVI values over Aquifer', 
-       y = 'depth to groundwater') +
+  labs(x = "Mean SAVI in Buffer",
+       y = "Mean NDVI in Buffer") +
   theme_minimal()
 
+# these are hella correlated
+lm(mean_bs ~ mean_bn, data = qazvin_clean) %>% 
+  summary()
+
+```
+
+My first analysis was looking at the difference between the NDVI and the SAVI values I calculated. We can be over 99% confident that the mean NDVI values and mean SAVI are correlated. 
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+# looking at gw level over time
+ggplot(qazvin_clean) + 
+  geom_point(aes(x = year, 
+            y = gw_level)) +
+  theme_bw()
+
+# looking at precip over time 
+ggplot(qazvin_clean) + 
+  geom_point(aes(x = year, 
+            y = annual_precip)) +
+  theme_bw()
+
+```
+I would have wanted to run a decomp on the precipitation data, but there were missing values and I did not have access to the values that were missing to run the decomp.
+
+## Visualize the NDVI and SAVI values from the Aquifer Shapefile
+
+```{r include = TRUE, message = FALSE, warning = FALSE, fig.height=5, fig.width=10}
+# look at changes of ag in the aquifer level
+max <- ggplot(aquifer_years) + 
+  geom_point(aes(x = year, 
+            y = max_a, 
+            color = type))
+            
+
+# look at changes of ag in the aquifer level
+mean <- ggplot(aquifer_years) + 
+  geom_point(aes(x = year, 
+            y = mean_a, 
+            color = type))
+
+
+median <- ggplot(aquifer_years) + 
+  geom_point(aes(x = year, 
+            y = median_a, 
+            color = type))
+
+ggplot(aquifer_years) + 
+  geom_point(aes(x = year, 
+            y = q1_a, 
+            color = type))
+
+mean + mean
+```
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+# look at changes of ag in the buffer level
+ggplot(buffer_years) + 
+  geom_point(aes(x = year, 
+            y = max_b, 
+            color = type))
+            
+
+# look at changes of ag in the buffer level
+ggplot(buffer_years) + 
+  geom_point(aes(x = year, 
+            y = mean_b, 
+            color = type))
+
+
+ggplot(buffer_years) + 
+  geom_point(aes(x = year, 
+            y = median_b, 
+            color = type))
+
+ggplot(buffer_years) + 
+  geom_point(aes(x = year, 
+            y = q1_b, 
+            color = type))
 ```
 
 ## Run lm() on ndvi sum values at each location
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-# mod1 for the aquifer percent pixel cover
-lm(level ~ annual_precip + aq_percent_ndvi, data = qazvin_clean) %>% 
+# mod1 mean ndvi level in the aquifer 
+lm(gw_level ~ annual_precip + mean_an, data = qazvin_clean) %>% 
   summary()
 
-# mod2 for the aquifer sum --> has a statistically significant result 
-lm(level ~ annual_precip + sum, data = qazvin_clean) %>% 
+# mod2 mean savi level in the aquifer 
+lm(gw_level ~ annual_precip + mean_as, data = qazvin_clean) %>% 
   summary()
 
 # mod3 for irrigation mean
 lm(level ~ annual_precip + ir_mean, data = qazvin_clean) %>% 
   summary()
 
-# mod4 for savi
-lm(level ~ q1, data = qazvin_clean) %>% 
+# mod4 mean savi level in the aquifer 
+lm(gw_level ~ annual_precip + qi_as, data = qazvin_clean) %>% 
   summary()
 
-# mod4 for savi
-lm(level ~ q1 + annual_precip, data = qazvin_clean) %>% 
+# mod4 mean savi level in the aquifer 
+lm(gw_level ~ annual_precip + sum_bs, data = qazvin_clean) %>% 
   summary()
 
 # mod4 for savi aquifer
-lm(level ~ sum, data = qazvin_clean) %>% 
+lm(gw_level ~ sum_bn, data = qazvin_clean) %>% 
   summary()
 
 ```
