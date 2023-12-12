@@ -68,7 +68,7 @@ gw_level_total <- readxl::read_xlsx(here("data/groundwater_time_series.xlsx")) %
   select(Year, WaterLevel) %>% # select years
   separate_wider_delim(col = Year, 
                        ".", # separate the months
-           names = c("Year", "Month")) %>% 
+                       names = c("Year", "Month")) %>% 
   select(!Month) %>% # remove the decimal column 
   mutate_at(vars(Year), as.numeric)
 
@@ -135,7 +135,7 @@ buffer_years <- buffer_ag %>%
   mutate_at(vars(year), as.numeric) %>% 
   pivot_wider(names_from = quartiles,
               values_from = val) %>% 
-    ungroup()
+  ungroup()
 
 # store just the NDVI values 
 buffer_ndvi <- buffer_years %>% 
@@ -156,7 +156,7 @@ buffer_savi <- buffer_years %>%
          max_bs = "max_b", 
          sum_bs = "sum_b", 
          mean_bs = "mean_b")
-  
+
 ```
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
@@ -243,6 +243,8 @@ ggplot() +
 
 ### Load in irrigation data
 
+The AEI values are defined as area irrigated with groundwater expressed as percentage of total area equipped for irrigation
+
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 qazvin_box <- data.frame(name = c("1", "2", "3", "4"),
                          long = c(49.31937729228426, 49.31937729228426, 51.12523623049739, 51.12523623049739),
@@ -271,29 +273,23 @@ irrigation_qazvin <- asc_1900_2015 %>%
 
 names(irrigation_qazvin) <- c("1900", "1910", "1920", "1930", "1940", "1950", "1960", "1970", "1980", "1985", "1990", "1995", "2000", "2005", "2010", "2015")
 
-plot(irrigation_qazvin)
-```
-
-```{r include = TRUE, message = FALSE, warning = FALSE}
 # transform shapefle to crs of irrigation map
 qazvin_aquifer <- st_transform(qazvin_aquifer, 
-                         crs = st_crs(irrigation_qazvin))
+                               crs = st_crs(irrigation_qazvin))
 
 ir_aq <- irrigation_qazvin %>% 
   crop(., qazvin_aquifer)
 
 plot(ir_aq)
 ir_aq
-```
 
-```{r include = TRUE, message = FALSE, warning = FALSE}
 
 ir_df <- as.data.frame(ir_aq) %>% 
   pivot_longer(1:16, 
                names_to = "year",
                values_to = "values") %>% 
   mutate_at(vars(year), as.numeric)
-  
+
 
 ir_summary <- ir_df %>% 
   group_by(year) %>% 
@@ -304,7 +300,6 @@ ir_summary <- ir_df %>%
          ir_sum = sum(values, na.rm = TRUE)) %>% 
   select(!values) %>% 
   slice(16)
-
 ```
 
 ## Prepare Data to Analyze
@@ -326,43 +321,112 @@ qazvin_clean <- precip %>%
 
 ```
 
-## Run regression model
+## Linear Regression 
+
+```{r}
+ir_compare <- qazvin_clean %>% 
+  select(year, annual_precip,gw_level, ir_mean) %>% 
+  pivot_longer(!c(year, gw_level))
+
+ggplot(data = ir_compare,
+       aes(x = year,
+           y = value,
+           color = name)) +
+  geom_point() +
+  geom_smooth(method = "lm", # tell what to fit model to 
+              formula = y ~ x, # association between variables
+              se = TRUE) +
+  theme_minimal()
+```
+
 
 To visualize the trends run this chunk right here:
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-ggplot(qazvin_clean, aes(x = mean_bn,
-                 y = mean_bs)) +
-  geom_point() +
-  geom_smooth(method = "lm", # tell what to fit model to 
-              formula = y ~ x, # association between variables
-              se = FALSE) + #standard error
-  labs(x = "Mean SAVI in Buffer",
-       y = "Mean NDVI in Buffer") +
-  theme_minimal()
+scale = 10
+
+ggplot(qazvin_clean, aes(x = year, y = gw_level)) + 
+  geom_point(aes(color = "Depth to GW")) +
+  geom_point(aes(y = ir_mean/scale,
+                 color = "Irrigation")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*scale)) +
+  stat_smooth(aes(y = gw_level),method = "lm", formula = y ~ x + I(x^2), size = 1,
+              color = "red") +
+  stat_smooth(aes(y = ir_mean/scale),method = "lm", formula = y ~ x, size = 1, 
+              color = "blue") +
+labs(x = "Year",
+     y = "Depth to Groundwater",
+     color = "") +
+  scale_y_continuous( "Depth to Groundwater", 
+                      sec.axis = sec_axis(~ . * 10, 
+                                          name = "Mean Area Equipped for Irrigation")) +
+theme_minimal()
+
 
 # these are hella correlated
-lm(mean_bs ~ mean_bn, data = qazvin_clean) %>% 
+lm(gw_level ~ ir_mean + annual_precip, data = qazvin_clean) %>% 
   summary()
 
 ```
 
-My first analysis was looking at the difference between the NDVI and the SAVI values I calculated. We can be over 99% confident that the mean NDVI values and mean SAVI are correlated. 
 
 ```{r include = TRUE, message = FALSE, warning = FALSE}
-# looking at gw level over time
-ggplot(qazvin_clean) + 
-  geom_point(aes(x = year, 
-            y = gw_level)) +
-  theme_bw()
 
-# looking at precip over time 
-ggplot(qazvin_clean) + 
-  geom_point(aes(x = year, 
-            y = annual_precip)) +
-  theme_bw()
+compare <- qazvin_clean %>% 
+  select(year, annual_precip, gw_level, qi_as)
+
+scale = 1000
+
+ggplot(compare, aes(x = year, y = gw_level)) + 
+  geom_point(aes(color = "Depth to GW")) +
+  geom_point(aes(y = qi_as*scale,
+                 color = "1st Quartile SAVI")) +
+  scale_y_continuous(sec.axis = sec_axis(~./scale, name="Q1")) +
+  stat_smooth(aes(y = gw_level),method = "lm", formula = y ~ x + I(x^2), size = 1) +
+  stat_smooth(aes(y = qi_as*scale),method = "lm", formula = y ~ x, size = 1, 
+              color = "red") +
+labs(x = "Year",
+     y = "Depth to Groundwater",
+     color = "") +
+  scale_y_continuous( "Depth to Groundwater", 
+                      sec.axis = sec_axis(~ . * 0.01, name = "Q1 in Aquifer")) +
+theme_minimal()
+
+# these are hella correlated
+lm(gw_level ~ qi_as + annual_precip, data = qazvin_clean) %>% 
+  summary()
 
 ```
+
+```{r include = TRUE, message = FALSE, warning = FALSE}
+
+compare <- qazvin_clean %>% 
+  select(year, annual_precip, gw_level, qi_bs)
+
+scale = 1000
+
+ggplot(compare, aes(x = year, y = gw_level)) + 
+  geom_point(aes(color = "Depth to GW")) +
+  geom_point(aes(y = qi_bs*scale,
+                 color = "1st Quartile SAVI")) +
+  scale_y_continuous(sec.axis = sec_axis(~./scale)) +
+  stat_smooth(aes(y = gw_level),method = "lm", formula = y ~ x + I(x^2), size = 1) +
+  stat_smooth(aes(y = qi_bs*scale),method = "lm", formula = y ~ x, size = 1, 
+              color = "red") +
+labs(x = "Year",
+     y = "Depth to Groundwater",
+     color = "") +
+  scale_y_continuous( "Depth to Groundwater", 
+                      sec.axis = sec_axis(~ . * 0.01, name = "Q1 in Buffer")) +
+theme_minimal()
+
+# these are hella correlated
+lm(gw_level ~ qi_bs + annual_precip, data = qazvin_clean) %>% 
+  summary()
+
+```
+
+
 I would have wanted to run a decomp on the precipitation data, but there were missing values and I did not have access to the values that were missing to run the decomp.
 
 ## Visualize the NDVI and SAVI values from the Aquifer Shapefile
@@ -371,26 +435,26 @@ I would have wanted to run a decomp on the precipitation data, but there were mi
 # look at changes of ag in the aquifer level
 max <- ggplot(aquifer_years) + 
   geom_point(aes(x = year, 
-            y = max_a, 
-            color = type))
-            
+                 y = max_a, 
+                 color = type))
+
 
 # look at changes of ag in the aquifer level
 mean <- ggplot(aquifer_years) + 
   geom_point(aes(x = year, 
-            y = mean_a, 
-            color = type))
+                 y = mean_a, 
+                 color = type))
 
 
 median <- ggplot(aquifer_years) + 
   geom_point(aes(x = year, 
-            y = median_a, 
-            color = type))
+                 y = median_a, 
+                 color = type))
 
 ggplot(aquifer_years) + 
   geom_point(aes(x = year, 
-            y = q1_a, 
-            color = type))
+                 y = q1_a, 
+                 color = type))
 
 mean + mean
 ```
@@ -399,26 +463,26 @@ mean + mean
 # look at changes of ag in the buffer level
 ggplot(buffer_years) + 
   geom_point(aes(x = year, 
-            y = max_b, 
-            color = type))
-            
+                 y = max_b, 
+                 color = type))
+
 
 # look at changes of ag in the buffer level
 ggplot(buffer_years) + 
   geom_point(aes(x = year, 
-            y = mean_b, 
-            color = type))
+                 y = mean_b, 
+                 color = type))
 
 
 ggplot(buffer_years) + 
   geom_point(aes(x = year, 
-            y = median_b, 
-            color = type))
+                 y = median_b, 
+                 color = type))
 
 ggplot(buffer_years) + 
   geom_point(aes(x = year, 
-            y = q1_b, 
-            color = type))
+                 y = q1_b, 
+                 color = type))
 ```
 
 ## Run lm() on ndvi sum values at each location
@@ -453,7 +517,7 @@ lm(gw_level ~ sum_bn, data = qazvin_clean) %>%
 ```{r include = TRUE, message = FALSE, warning = FALSE}
 ggplot(data = qazvin_clean, 
        aes(rev(x = q1), # reverse the y axis
-                 y = level)) +
+           y = level)) +
   geom_point() +
   geom_smooth(method = "lm", # tell what to fit model to 
               formula = y ~ x, # association between variables
